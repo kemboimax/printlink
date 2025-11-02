@@ -1,0 +1,4 @@
+Flask
+pywin32
+requests
+Pillow
