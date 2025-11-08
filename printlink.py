@@ -18,12 +18,20 @@ import winreg
 import signal
 import atexit
 
+
+import socket
+import platform
+import getpass
+import uuid
+
+
+
 app = Flask(__name__)
 
 # ===========================================
 # 🔐 FIXED PASSWORD CONFIGURATION
 # ===========================================
-FIXED_PASSWORD = "mypass"  # ⚠️ CHANGE THIS!
+FIXED_PASSWORD = "Snellosoft@2030"  # ⚠️ CHANGE THIS!
 
 # ===========================================
 # 🔹 Configuration Storage (Windows Registry)
@@ -460,7 +468,7 @@ CONFIG_HTML = """
 
         <div class="footer-links">
             <a href="/status" target="_blank">📊 Status</a>
-            <a href="/" target="_blank">📋 Printers</a>
+            <a href="/printers" target="_blank">📋 Printers</a>
             <a href="/api/docs" target="_blank">📚 API Docs</a>
         </div>
     </div>
@@ -823,6 +831,84 @@ def status_page():
 def api_status():
     """API endpoint for vortex status"""
     return jsonify(vortex_status)
+
+
+
+# ===========================================
+# 🔹 Device Info
+# ===========================================
+def get_device_id():
+    """
+    Generates a unique, stable device ID.
+    Tries Windows MachineGUID first, then falls back to MAC address.
+    """
+    id_str = ""
+    try:
+        # 1. Try Windows MachineGUID (most stable)
+        key_path = r"SOFTWARE\Microsoft\Cryptography"
+        # Open 64-bit view of registry if available
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path, 0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY)
+        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+        winreg.CloseKey(key)
+        id_str = guid
+    except Exception:
+        # 2. Fallback to MAC address
+        try:
+            mac = uuid.getnode()
+            id_str = str(mac)
+        except Exception:
+            # 3. Fallback to hostname (least unique, but better than nothing)
+            id_str = socket.gethostname()
+    
+    # Hash it for a clean, consistent ID
+    return hashlib.sha256(id_str.encode('utf-8')).hexdigest()
+
+@app.route("/api/device-info", methods=["GET"])
+def device_info():
+    """
+    Exposes current device information, including IPs and a unique ID.
+    """
+    hostname = socket.gethostname()
+    ipv4_addr = 'N/A'
+    ipv6_addr = 'N/A'
+
+    try:
+        # Get primary IPv4
+        ipv4_addr = socket.gethostbyname(hostname)
+    except Exception:
+        pass  # N/A is already set
+
+    try:
+        # Get all IPv6 addresses and find the first non-link-local one
+        all_info = socket.getaddrinfo(hostname, None, socket.AF_INET6)
+        for info in all_info:
+            addr = info[4][0]
+            if not addr.startswith('fe80:'):  # Skip link-local
+                ipv6_addr = addr
+                break
+        # If still N/A and we found *any* v6, use the first one
+        if ipv6_addr == 'N/A' and all_info:
+            ipv6_addr = all_info[0][4][0]
+    except Exception:
+        pass  # N/A is already set
+
+    try:
+        device_id = get_device_id()
+    except Exception as e:
+        device_id = f"Error generating ID: {str(e)}"
+
+    info = {
+        "deviceId": device_id,
+        "hostname": hostname,
+        "ipv4": ipv4_addr,
+        "ipv6": ipv6_addr,
+        "os": f"{platform.system()} {platform.release()}",
+        "osVersion": platform.version(),
+        "currentUser": getpass.getuser()
+    }
+    return jsonify(info)
+
+
 
 @app.route("/", methods=["GET"])
 def config_page():

@@ -2,3 +2,9 @@ Flask
 pywin32
 requests
 Pillow
+
+
+import socket
+import platform
+import getpass
+import uuid
